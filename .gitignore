@@ -1,0 +1,12 @@
+# Локальная VM: образ, диск, cloud-init seed, pid
+.vm/
+
+# Python-окружение с Ansible
+.venv/
+
+# Terraform: кэш провайдеров и state не коммитим (в state бывают секреты).
+# .terraform.lock.hcl коммитим — он фиксирует версии провайдеров.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
