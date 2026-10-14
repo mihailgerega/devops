@@ -65,6 +65,7 @@ VM запущена в сети QEMU user-mode: снаружи она не ви�
 │   ├── docker-compose.yml
 │   ├── nginx/default.conf   # конфиг reverse proxy
 │   └── app/index.html       # Hello World
+├── docs/screenshots/        # скриншоты к разделу «Результаты»
 ├── scripts/
 │   ├── vm.sh                # up / down / destroy локальной VM
 │   └── monitor.sh           # мониторинг сервиса и syslog
@@ -157,17 +158,11 @@ scripts/vm.sh destroy               # удалить диск VM (следующ
 
 ## Результаты
 
-### `terraform state list`
+### `terraform state list` и `curl -i` на нестандартный порт
 
-```
-$ terraform state list
-docker_container.nginx
-docker_image.nginx
-docker_network.nginx
-docker_volume.nginx_html
-```
+![terraform state list и curl -i http://127.0.0.1:8081](docs/screenshots/01-terraform-state-list-curl.png)
 
-`terraform apply`:
+Вывод `terraform apply`:
 
 ```
 Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
@@ -178,22 +173,6 @@ check_command = "curl -i http://127.0.0.1:8081"
 container_name = "tf-nginx"
 network_name = "tf-nginx-net"
 volume_name = "tf-nginx-html"
-```
-
-nginx на нестандартном порту:
-
-```
-$ curl -i http://127.0.0.1:8081
-HTTP/1.1 200 OK
-Server: nginx/1.30.5
-Content-Type: text/html
-Content-Length: 190
-
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>tf-nginx</title></head>
-<body><h1>nginx managed by Terraform</h1><p>network: tf-nginx-net, volume: tf-nginx-html</p></body>
-</html>
 ```
 
 Контейнер подключён только к своей сети, том смонтирован:
@@ -207,54 +186,9 @@ networks: tf-nginx-net | mounts: volume:tf-nginx-html->/usr/share/nginx/html | p
 
 ### Ansible: второй запуск (идемпотентность)
 
-```
-$ ansible-playbook setup_host.yml
+![ansible-playbook setup_host.yml, второй запуск, часть 1](docs/screenshots/02-ansible-second-run-part1.png)
 
-PLAY [Configure Docker host] ***************************************************
-
-TASK [Gathering Facts] *********************************************************
-ok: [devops-vm]
-
-TASK [Add Docker apt repository] ***********************************************
-ok: [devops-vm]
-
-TASK [Install Docker Engine and Docker Compose plugin] *************************
-ok: [devops-vm]
-
-TASK [Start Docker and enable it on boot] **************************************
-ok: [devops-vm] => (item=containerd)
-ok: [devops-vm] => (item=docker)
-
-TASK [Create deployer user (member of docker group)] ***************************
-ok: [devops-vm]
-
-TASK [Allow deployer to use sudo without password] *****************************
-ok: [devops-vm]
-
-TASK [Add SSH key for deployer] ************************************************
-ok: [devops-vm]
-
-TASK [Harden sshd] *************************************************************
-ok: [devops-vm]
-
-TASK [Allow SSH only from the host] ********************************************
-ok: [devops-vm]
-
-TASK [Enable firewall with default deny for incoming traffic] ******************
-ok: [devops-vm]
-
-TASK [Create application directory] ********************************************
-ok: [devops-vm]
-
-TASK [Copy Docker Compose project to the host] *********************************
-ok: [devops-vm]
-
-TASK [Install monitor.sh] ******************************************************
-ok: [devops-vm]
-
-PLAY RECAP *********************************************************************
-devops-vm                  : ok=13   changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
-```
+![ansible-playbook setup_host.yml, второй запуск, часть 2: changed=0](docs/screenshots/03-ansible-second-run-part2.png)
 
 Первый запуск на чистой VM: `ok=14 changed=12`.
 
@@ -262,29 +196,25 @@ devops-vm                  : ok=13   changed=0    unreachable=0    failed=0    s
 
 На ноутбуке (Ubuntu 24.04, syslog в формате RFC 3339):
 
-```
-$ scripts/monitor.sh docker
-Сервис:  docker
-Статус:  active
-Ошибок в /var/log/syslog за час: 1083
-
-$ scripts/monitor.sh nosuch
-Сервис 'nosuch' не найден            # код выхода 2
-```
+![monitor.sh docker на ноутбуке](docs/screenshots/04-monitor-local.png)
 
 На VM (Ubuntu 22.04, классический формат syslog):
 
+![monitor.sh docker на VM](docs/screenshots/05-monitor-vm.png)
+
+Другие сценарии:
+
 ```
-$ monitor.sh docker                  # без sudo syslog не читается — скрипт это сообщает
+$ scripts/monitor.sh nosuch
+Сервис 'nosuch' не найден            # код выхода 2
+
+# на VM без sudo syslog не читается — скрипт это сообщает
+$ monitor.sh docker
 Сервис:  docker
 Статус:  active
 Ошибок в /var/log/syslog за час: n/a (файла нет или нет прав — попробуйте через sudo)
 
-$ sudo monitor.sh docker
-Сервис:  docker
-Статус:  active
-Ошибок в /var/log/syslog за час: 49
-
+# на VM
 $ sudo systemctl stop cron && sudo monitor.sh cron      # сервис остановлен, код выхода 1
 Сервис:  cron
 Статус:  inactive
@@ -298,28 +228,11 @@ Oct 07 12:14:15 devops-vm systemd[1]: Stopped Regular background program process
 Ошибок в /var/log/syslog за час: 49
 ```
 
-Число ошибок сверено вручную (`grep -ciE 'error|fail' /var/log/syslog` на только что загруженной VM даёт те же 49).
+Число ошибок сверялось вручную: на только что загруженной VM `grep -ciE 'error|fail' /var/log/syslog` дал те же 49, что и скрипт.
 
 ### `docker compose ps` и `curl http://<VM_IP>`
 
-```
-$ docker compose ps
-NAME          IMAGE               COMMAND                  SERVICE   CREATED         STATUS         PORTS
-app-app-1     nginx:1.30-alpine   "/docker-entrypoint.…"   app       3 seconds ago   Up 2 seconds   80/tcp
-app-nginx-1   nginx:1.30-alpine   "/docker-entrypoint.…"   nginx     3 seconds ago   Up 2 seconds   0.0.0.0:80->80/tcp, [::]:80->80/tcp
-
-$ curl -i http://10.0.2.15
-HTTP/1.1 200 OK
-Server: nginx/1.30.5
-Content-Type: text/html
-Content-Length: 181
-
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Hello World</title></head>
-<body><h1>Hello World</h1><p>app behind nginx reverse proxy (docker compose)</p></body>
-</html>
-```
+![docker compose ps и curl -i http://10.0.2.15](docs/screenshots/06-compose-ps-curl.png)
 
 Запрос действительно идёт через proxy: в логе `app` клиент — контейнер nginx из `app-net`,
 а исходный адрес передан в `X-Forwarded-For`:
