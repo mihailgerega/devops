@@ -1,0 +1,130 @@
+---
+# Подготовка хоста к работе с контейнерами:
+# Docker Engine + Compose, автозапуск Docker, пользователь deployer,
+# SSH только по ключу и без root, firewall (SSH только с адреса хоста).
+# Playbook идемпотентен: повторный запуск даёт changed=0.
+- name: Configure Docker host
+  hosts: docker_hosts
+  become: true
+
+  vars:
+    deploy_user: deployer
+    deploy_user_pubkey: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub') }}"
+    # Адрес, с которого разрешён SSH. В сети QEMU user-mode хост виден из VM как 10.0.2.2
+    ssh_allowed_from: 10.0.2.2
+    docker_packages:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    app_dir: /opt/app
+
+  tasks:
+    # ---------- Docker Engine из официального репозитория Docker ----------
+    # Создаёт /etc/apt/sources.list.d/docker.sources и сам скачивает ключ репозитория
+    - name: Add Docker apt repository
+      ansible.builtin.deb822_repository:
+        name: docker
+        types: deb
+        uris: https://download.docker.com/linux/ubuntu
+        suites: "{{ ansible_facts['distribution_release'] }}"
+        components: stable
+        signed_by: https://download.docker.com/linux/ubuntu/gpg
+
+    - name: Install Docker Engine and Docker Compose plugin
+      ansible.builtin.apt:
+        name: "{{ docker_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Start Docker and enable it on boot
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - containerd
+        - docker
+
+    # ---------- Пользователь deployer ----------
+    - name: Create deployer user (member of docker group)
+      ansible.builtin.user:
+        name: "{{ deploy_user }}"
+        shell: /bin/bash
+        groups: docker
+        append: true
+
+    - name: Allow deployer to use sudo without password
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ deploy_user }}"
+        content: "{{ deploy_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: "0440"
+        validate: /usr/sbin/visudo -cf %s # битый sudoers не попадёт на хост
+
+    - name: Add SSH key for deployer
+      ansible.posix.authorized_key:
+        user: "{{ deploy_user }}"
+        key: "{{ deploy_user_pubkey }}"
+
+    # ---------- SSH: только по ключу, без входа под root ----------
+    # Файл с префиксом 00- читается раньше 50-cloud-init.conf, а в sshd
+    # действует первое найденное значение параметра.
+    - name: Harden sshd
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/00-hardening.conf
+        content: |
+          PermitRootLogin no
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+        mode: "0644"
+        validate: /usr/sbin/sshd -t -f %s
+      notify: Restart ssh
+
+    # ---------- Firewall (аналог Security Group) ----------
+    # Входящие по умолчанию запрещены, SSH — только с адреса хоста.
+    # Порты, опубликованные Docker (80, 8081), идут через цепочки Docker
+    # в обход правил UFW — это особенность Docker, см. README.
+    - name: Allow SSH only from the host
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        from_ip: "{{ ssh_allowed_from }}"
+
+    - name: Enable firewall with default deny for incoming traffic
+      community.general.ufw:
+        state: enabled
+        direction: incoming
+        policy: deny
+
+    # ---------- Файлы приложения и утилита мониторинга ----------
+    - name: Create application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0755"
+
+    - name: Copy Docker Compose project to the host
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../compose/"
+        dest: "{{ app_dir }}/"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: "0644"
+        directory_mode: "0755"
+
+    - name: Install monitor.sh
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../scripts/monitor.sh"
+        dest: /usr/local/bin/monitor.sh
+        mode: "0755"
+
+  handlers:
+    - name: Restart ssh
+      ansible.builtin.systemd_service:
+        name: ssh
+        state: restarted
