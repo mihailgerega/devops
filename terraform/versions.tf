@@ -7,11 +7,10 @@ terraform {
       version = "~> 4.6"
     }
   }
-  # Backend не задан => local: состояние хранится в terraform/terraform.tfstate
+  # backend не задан, значит local: состояние в terraform/terraform.tfstate
 }
 
-# Docker Engine на VM. Подключение по SSH под deployer (не root):
-# провайдер запускает на VM `docker system dial-stdio` через ssh.
+# Docker на VM, подключение по SSH под пользователем deployer (не root)
 provider "docker" {
   host = var.docker_host
 }
