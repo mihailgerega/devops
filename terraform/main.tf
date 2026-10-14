@@ -2,7 +2,7 @@
 
 resource "docker_image" "nginx" {
   name         = var.nginx_image
-  keep_locally = true # не удалять образ с хоста при destroy
+  keep_locally = true # образ общий с compose, при destroy не удаляем
 }
 
 # Отдельная bridge-сеть: контейнер изолирован от default bridge и от сети compose (app-net)

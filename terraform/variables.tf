@@ -1,5 +1,5 @@
 variable "docker_host" {
-  description = "Адрес Docker Engine. По умолчанию — VM из scripts/vm.sh (SSH проброшен на 127.0.0.1:2222)"
+  description = "Адрес Docker на VM (SSH проброшен на 127.0.0.1:2222)"
   type        = string
   default     = "ssh://deployer@127.0.0.1:2222"
 }
@@ -29,12 +29,7 @@ variable "volume_name" {
 }
 
 variable "external_port" {
-  description = "Нестандартный порт на хосте, на котором nginx отвечает по HTTP"
+  description = "Нестандартный порт, на котором nginx отвечает по HTTP"
   type        = number
   default     = 8081
-
-  validation {
-    condition     = var.external_port > 1024 && var.external_port < 65536
-    error_message = "Нужен нестандартный порт: 1025-65535."
-  }
 }

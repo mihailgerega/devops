@@ -10,7 +10,7 @@
 # тогда скрипт подскажет запустить его через sudo.
 set -uo pipefail # без -e: ненулевые коды systemctl/grep разбираем сами
 
-SYSLOG="${SYSLOG:-/var/log/syslog}"
+SYSLOG=/var/log/syslog
 ERROR_PATTERN='error|fail' # что считаем ошибкой (регистр не важен)
 
 if [[ $# -ne 1 || -z $1 ]]; then
